@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include <WiFi.h>
-
 #include "Secrets.h"
 #include <WiFiClientSecure.h>
 #include <MQTTClient.h>
@@ -8,12 +7,28 @@
 #include "WiFi.h"
 #include <iostream>
 #include <string>
+#include <Stepper.h>
 
 // The MQTT topics that this device should publish/subscribe
-#define AWS_IOT_PUBLISH_TOPIC "esp32/pub"
-#define AWS_IOT_SUBSCRIBE_TOPIC "esp32/pub"
-#define AWS_IOT_SUBSCRIBE_TOPIC_PET_LED "PET_LED"
-#define PET_LED_PIN 2
+#define AWS_IOT_PUBLISH_TOPIC "esp32/pub/teste"
+#define S_GET_FOOD_TOPIC "get_food"
+#define P_SET_FOOD_TOPIC "set_food"
+#define S_GET_DRINK_TOPIC "get_drink"
+#define P_SET_DRINK_TOPIC "set_drink"
+#define LED_PIN_5 0 //bebida
+#define LED_PIN_4 4 //comida
+#define LED_PIN_3 23 //comida
+#define LED_PIN_2 2 //comida
+#define BUTTON_1 15 //BOTÃO TESTE
+
+#define IN1 19
+#define IN2 18
+#define IN3 5
+#define IN4 17
+
+const int stepsPerRevolution = 2048;
+
+Stepper myStepper(stepsPerRevolution, IN1, IN3, IN2, IN4);
 
 int counter = 0;
 
@@ -61,10 +76,41 @@ void connectAWS()
 	}
 
 	// Subscribe to a topic
-	client.subscribe(AWS_IOT_SUBSCRIBE_TOPIC);
-	client.subscribe(AWS_IOT_SUBSCRIBE_TOPIC_PET_LED);
+	client.subscribe(S_GET_FOOD_TOPIC);
+	client.subscribe(S_GET_DRINK_TOPIC);
 
 	Serial.println("AWS IoT Connected!");
+}
+
+void get_food(String &type) {
+	int led;
+
+	if (type == "2") {
+		led = LED_PIN_2;
+	} else if (type == "3") {
+		led = LED_PIN_3;
+	} else if (type == "4") {
+		led = LED_PIN_4;
+	}
+
+	digitalWrite(led, HIGH);
+	delay(1000);
+	digitalWrite(led, LOW);
+	delay(1000);
+
+	// write code to spin engine (check angle)
+}
+
+void get_drink(String &type) {
+	int led = LED_PIN_5;
+
+	Serial.println(led);
+	digitalWrite(led, HIGH);
+	delay(1000);
+	digitalWrite(led, LOW);
+	delay(1000);
+
+	// write code to release valve (check time)
 }
 
 void publishMessage() {
@@ -77,7 +123,6 @@ void publishMessage() {
 	serializeJson(doc, jsonBuffer); // print to client
 
 	client.publish(AWS_IOT_PUBLISH_TOPIC, jsonBuffer);
-	Serial.println("Publicado teste");
 }
 
 void messageHandler(String &topic, String &payload) {
@@ -93,14 +138,12 @@ void messageHandler(String &topic, String &payload) {
 
 	String type = doc["type"].as<String>();
 
-    // Compare the topic string with the expected topic
-    if (type == "1") {
-        Serial.println(topic + "\n" + type + "\nteste comparação");
+	Serial.println(topic);
 
-		digitalWrite(PET_LED_PIN, HIGH);
-		delay(1000);
-		digitalWrite(PET_LED_PIN, LOW);
-		delay(1000);
+	if (topic == S_GET_FOOD_TOPIC) {
+		get_food(type);
+	} else if (topic == S_GET_DRINK_TOPIC){
+		get_drink(type);
 	}
 
 	const char* message = doc["message"];
@@ -109,19 +152,47 @@ void messageHandler(String &topic, String &payload) {
 void setup() {
 	Serial.begin(115200);
 
-	pinMode(PET_LED_PIN, OUTPUT);
+	myStepper.setSpeed(5);
 
-	digitalWrite(PET_LED_PIN, HIGH);
+
+	pinMode(LED_PIN_2, OUTPUT);
+	pinMode(LED_PIN_3, OUTPUT);
+	pinMode(LED_PIN_4, OUTPUT);
+	pinMode(LED_PIN_5, OUTPUT);
+	pinMode(BUTTON_1, INPUT_PULLUP);
+
+	digitalWrite(LED_PIN_5, HIGH);
 	delay(1000);
-	digitalWrite(PET_LED_PIN, LOW);
+	digitalWrite(LED_PIN_5, LOW);
 	delay(1000);
 
 	connectAWS();
 }
 
+void set_food(char * food_type) {
+	StaticJsonDocument<200> doc;
+
+	doc["type"] = food_type;
+
+	char jsonBuffer[512];
+
+	serializeJson(doc, jsonBuffer); // print to client
+    client.publish(P_SET_FOOD_TOPIC, jsonBuffer);
+
+    delay(1000); // Debouncing delay
+}
+
 void loop() {
-	publishMessage();
 	client.onMessage(messageHandler);
 	client.loop();
-	delay(5000);
+
+	int button_1 = !digitalRead(BUTTON_1);
+
+	myStepper.step(stepsPerRevolution);
+
+  	if (button_1 == HIGH) {
+		set_food("1");
+	}
+
+	delay(2000);
 }
